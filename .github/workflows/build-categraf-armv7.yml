@@ -1,53 +1,60 @@
-name: Build Categraf for armv7 (Static)
+name: Build Categraf for armv7 (in Container)
 
 on:
-  # 允许您在 GitHub Actions 页面手动触发此工作流
   workflow_dispatch:
 
-# 在工作流级别定义环境变量
-env:
-  GO_VERSION: '1.24'
-  GOOS: linux
-  GOARCH: arm
-  GOARM: 7
-
 jobs:
-  build-for-armv7:
+  build-in-container:
     runs-on: ubuntu-latest
+    
+    # 使用一个与目标环境接近的ARM32v7 Docker容器
+    container:
+      image: arm32v7/debian:buster-slim
+      options: --user root
+
     steps:
-      - name: Install ARM C Cross-Compiler and libpcap
+      - name: Install Build Dependencies inside Container
+        # 在容器内部安装编译所需的所有工具
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-arm-linux-gnueabihf libpcap-dev
+          apt-get update
+          apt-get install -y git build-essential libpcap-dev wget
+
+      - name: Install Go compiler inside Container
+        # 在容器内部下载并安装Go
+        run: |
+          wget https://go.dev/dl/go1.21.10.linux-armv6l.tar.gz
+          tar -C /usr/local -xzf go1.21.10.linux-armv6l.tar.gz
+          export PATH=$PATH:/usr/local/go/bin
+          # 验证Go是否安装成功
+          go version
 
       - name: Checkout Source Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Go Environment
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
+      - name: Build Categraf Binary
+        # 在容器的bash环境中执行编译
+        # 因为我们现在是在一个ARM32环境中原生编译，不再需要交叉编译参数
+        # 也不再需要复杂的静态链接参数
+        run: |
+          export PATH=$PATH:/usr/local/go/bin
+          CGO_ENABLED=1 go build -ldflags="-s -w" -o categraf .
 
-      - name: Build Statically-Linked Categraf Binary
-        # 这是最终、最关键的修正：
-        # -ldflags '... -extldflags "-static"' 指示Go的外部链接器（GCC）进行静态链接。
-        # 这会将所有C库的依赖（包括libc和libpcap）都打包进最终的可执行文件中。
-        env:
-          CGO_ENABLED: 1
-          CC: arm-linux-gnueabihf-gcc
-        run: go build -ldflags='-s -w -extldflags "-static"' -o categraf .
+      - name: Verify Dynamic Linking of the Output
+        # 调试步骤：检查生成的二进制文件，确认它的依赖
+        run: file ./categraf && ldd ./categraf
 
-      - name: Prepare Artifact Package for Release
+      - name: Prepare Artifact Package
+        # 我们仍然在容器中，需要先打包，然后actions/upload-artifact会从容器中取出
         run: |
           mkdir -p package_root
           mv categraf package_root/
           cp -r conf package_root/
           tar -zcvf categraf-linux-armv7.tar.gz -C package_root .
 
-      - name: Upload Artifact
+      - name: Upload Artifact from Container
         uses: actions/upload-artifact@v4
         with:
-          name: categraf-linux-armv7-package
-          path: categraf-linux-armv7.tar.gz
+          name: categraf-linux-armv7-container-build
+          path: ./categraf-linux-armv7.tar.gz
