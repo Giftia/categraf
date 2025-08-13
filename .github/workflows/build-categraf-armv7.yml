@@ -1,50 +1,57 @@
-name: Build Categraf for armv7 (musl-static)
+name: Build Categraf for armv7 (Manual Container Build)
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-musl-static:
+  build-in-container:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Build with musl-cross-compiler
-        # 使用一个预配置好的、专门用于musl交叉编译的Action
-        # https://github.com/rust-embedded/cross
-        uses: rust-embedded/cross@v0.2.5
-        with:
-          # 指定我们的交叉编译目标
-          target: armv7-unknown-linux-musleabihf
-          # 在容器内部执行的命令
-          run: |
-            # 这个Action的容器里已经内置了交叉编译工具链
-            # 我们只需要安装libpcap和Go
-            apt-get update
-            apt-get install -y libpcap-dev wget
-            
-            # 下载并安装Go
-            wget https://go.dev/dl/go1.21.10.linux-amd64.tar.gz
-            tar -C /usr/local -xzf go1.21.10.linux-amd64.tar.gz
+      - name: Build inside ARM32v7 Docker Container
+        run: |
+          # --rm: 容器停止后自动删除
+          # -v "${{ github.workspace }}":/src": 将当前工作区（源代码）挂载到容器的 /src 目录
+          docker run --rm -v "${{ github.workspace }}":/src arm32v7/debian:buster-slim /bin/bash -c '
+            # --- 现在所有的命令都在容器内部执行 ---
+
+            # 1. 更新包列表并安装依赖
+            apt-get update && apt-get install -y git build-essential libpcap-dev wget
+
+            # 2. 安装Go编译器 (armv6l版本兼容armv7)
+            wget -q https://go.dev/dl/go1.21.10.linux-armv6l.tar.gz
+            tar -C /usr/local -xzf go1.21.10.linux-armv6l.tar.gz
             export PATH=$PATH:/usr/local/go/bin
             
-            # 使用musl工具链进行编译
-            # Go会自动识别交叉编译环境并使用正确的CC（C编译器）
-            go build -ldflags="-s -w" -o categraf .
+            # 3. 进入源代码目录
+            cd /src
+
+            # 4. 原生编译Categraf
+            #    因为是在ARM32容器内，这是原生编译，无需特殊参数
+            CGO_ENABLED=1 go build -ldflags="-s -w" -o categraf .
+
+            # --- 编译完成，退出容器 ---
+          '
+          
+      - name: Check the build output
+        run: |
+          ls -l ./categraf
+          file ./categraf
 
       - name: Prepare Artifact Package
-        # 构建完成后，文件会出现在主机的workspace中
         run: |
           mkdir -p package_root
-          mv categraf package_root/
+          # 将编译好的categraf移动到打包目录
+          mv ./categraf package_root/
+          # 复制配置文件
           cp -r conf package_root/
-          tar -zcvf categraf-linux-armv7-musl.tar.gz -C package_root .
+          tar -zcvf categraf-linux-armv7.tar.gz -C package_root .
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: categraf-linux-armv7-musl-package
-          path: ./categraf-linux-armv7-musl.tar.gz
+          name: categraf-linux-armv7-debian-build
+          path: ./categraf-linux-armv7.tar.gz
