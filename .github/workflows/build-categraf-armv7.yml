@@ -6,7 +6,7 @@ on:
 
 # 在工作流级别定义环境变量
 env:
-  GO_VERSION: '1.24' # 采用和官方 ci.yml 一致的 Go 版本
+  GO_VERSION: '1.24'
   GOOS: linux
   GOARCH: arm
   GOARM: 7
@@ -15,9 +15,13 @@ jobs:
   build-for-armv7:
     runs-on: ubuntu-latest
     steps:
-      - name: Install libpcap dependency
-        # 这是从官方 release.yml 中学到的关键步骤，用于编译网络插件
-        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+      - name: Install ARM C Cross-Compiler and libpcap
+        # 这是最关键的修正步骤：
+        # 1. 安装 gcc-arm-linux-gnueabihf，这是用于C代码的交叉编译器。
+        # 2. 安装 libpcap-dev，这是Categraf依赖的C库。
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabihf libpcap-dev
 
       - name: Checkout Source Code
         uses: actions/checkout@v4
@@ -29,13 +33,14 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Build Categraf Binary
-        # Categraf 的项目结构比较简单，主程序在根目录
-        # CGO_ENABLED=1 是必要的，因为它需要链接到我们刚刚安装的 libpcap C 库
-        run: CGO_ENABLED=1 go build -ldflags="-s -w" -o categraf .
+      - name: Build Categraf Binary with Cross-Compiler
+        # 关键修正：通过 CC 环境变量，明确告诉Go使用我们刚刚安装的ARM交叉编译器
+        env:
+          CGO_ENABLED: 1
+          CC: arm-linux-gnueabihf-gcc
+        run: go build -ldflags="-s -w" -o categraf .
 
       - name: Prepare Artifact Package for Release
-        # Categraf 的配置文件在 'conf' 目录下
         run: |
           mkdir -p package_root
           mv categraf package_root/
