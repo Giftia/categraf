@@ -1,4 +1,4 @@
-name: Build Categraf for armv7
+name: Build Categraf for armv7 (Static)
 
 on:
   # 允许您在 GitHub Actions 页面手动触发此工作流
@@ -16,9 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install ARM C Cross-Compiler and libpcap
-        # 这是最关键的修正步骤：
-        # 1. 安装 gcc-arm-linux-gnueabihf，这是用于C代码的交叉编译器。
-        # 2. 安装 libpcap-dev，这是Categraf依赖的C库。
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-arm-linux-gnueabihf libpcap-dev
@@ -33,12 +30,14 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Build Categraf Binary with Cross-Compiler
-        # 关键修正：通过 CC 环境变量，明确告诉Go使用我们刚刚安装的ARM交叉编译器
+      - name: Build Statically-Linked Categraf Binary
+        # 这是最终、最关键的修正：
+        # -ldflags '... -extldflags "-static"' 指示Go的外部链接器（GCC）进行静态链接。
+        # 这会将所有C库的依赖（包括libc和libpcap）都打包进最终的可执行文件中。
         env:
           CGO_ENABLED: 1
           CC: arm-linux-gnueabihf-gcc
-        run: go build -ldflags="-s -w" -o categraf .
+        run: go build -ldflags='-s -w -extldflags "-static"' -o categraf .
 
       - name: Prepare Artifact Package for Release
         run: |
