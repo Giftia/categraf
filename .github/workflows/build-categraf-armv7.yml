@@ -1,4 +1,4 @@
-name: Build Categraf for armv7 (QEMU + Manual Docker)
+name: Build Categraf for armv7 (QEMU + Archive Sources)
 
 on:
   workflow_dispatch:
@@ -12,35 +12,37 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up QEMU for ARM emulation
-        # 这是最关键的第一步：配置QEMU，让amd64主机能运行ARM容器
         uses: docker/setup-qemu-action@v3
 
       - name: Build inside ARM32v7 Docker Container
         run: |
-          # 现在，因为QEMU已经配置好，这个命令可以成功运行
           docker run --rm -v "${{ github.workspace }}":/src arm32v7/debian:buster-slim /bin/bash -c '
-            # --- 现在所有的命令都在容器内部执行 ---
-            set -e # 如果任何命令失败，立即退出脚本
+            set -e # 任何命令失败则立即退出
 
-            # 1. 更新包列表并安装依赖
-            apt-get update && apt-get install -y git build-essential libpcap-dev wget
+            # --- 这是最关键的修正 ---
+            # 1. 修改 sources.list 文件，指向 Debian 的存档软件源
+            echo "deb http://archive.debian.org/debian buster main" > /etc/apt/sources.list
+            echo "deb http://archive.debian.org/debian-security buster/updates main" >> /etc/apt/sources.list
+            
+            # 2. 现在可以成功更新包列表并安装依赖了
+            apt-get update -o Acquire::Check-Valid-Until=false
+            apt-get install -y git build-essential libpcap-dev wget
 
-            # 2. 安装Go编译器 (armv6l版本兼容armv7)
+            # 3. 安装Go编译器
             wget -q https://go.dev/dl/go1.21.10.linux-armv6l.tar.gz
             tar -C /usr/local -xzf go1.21.10.linux-armv6l.tar.gz
             export PATH=$PATH:/usr/local/go/bin
             
-            # 3. 进入源代码目录
+            # 4. 进入源代码目录
             cd /src
 
-            # 4. 原生编译Categraf
+            # 5. 原生编译Categraf
             CGO_ENABLED=1 go build -ldflags="-s -w" -o categraf .
-
-            # --- 编译完成，退出容器 ---
           '
           
       - name: Check the build output
         run: |
+          echo "Build finished. Checking the output file..."
           ls -l ./categraf
           file ./categraf
 
@@ -54,5 +56,5 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: categraf-linux-armv7-qemu-build
+          name: categraf-linux-armv7-final-build
           path: ./categraf-linux-armv7.tar.gz
