@@ -1,4 +1,4 @@
-name: Build Categraf for armv7 (Manual Container Build)
+name: Build Categraf for armv7 (QEMU + Manual Docker)
 
 on:
   workflow_dispatch:
@@ -11,12 +11,16 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
+      - name: Set up QEMU for ARM emulation
+        # 这是最关键的第一步：配置QEMU，让amd64主机能运行ARM容器
+        uses: docker/setup-qemu-action@v3
+
       - name: Build inside ARM32v7 Docker Container
         run: |
-          # --rm: 容器停止后自动删除
-          # -v "${{ github.workspace }}":/src": 将当前工作区（源代码）挂载到容器的 /src 目录
+          # 现在，因为QEMU已经配置好，这个命令可以成功运行
           docker run --rm -v "${{ github.workspace }}":/src arm32v7/debian:buster-slim /bin/bash -c '
             # --- 现在所有的命令都在容器内部执行 ---
+            set -e # 如果任何命令失败，立即退出脚本
 
             # 1. 更新包列表并安装依赖
             apt-get update && apt-get install -y git build-essential libpcap-dev wget
@@ -30,7 +34,6 @@ jobs:
             cd /src
 
             # 4. 原生编译Categraf
-            #    因为是在ARM32容器内，这是原生编译，无需特殊参数
             CGO_ENABLED=1 go build -ldflags="-s -w" -o categraf .
 
             # --- 编译完成，退出容器 ---
@@ -44,14 +47,12 @@ jobs:
       - name: Prepare Artifact Package
         run: |
           mkdir -p package_root
-          # 将编译好的categraf移动到打包目录
           mv ./categraf package_root/
-          # 复制配置文件
           cp -r conf package_root/
           tar -zcvf categraf-linux-armv7.tar.gz -C package_root .
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: categraf-linux-armv7-debian-build
+          name: categraf-linux-armv7-qemu-build
           path: ./categraf-linux-armv7.tar.gz
