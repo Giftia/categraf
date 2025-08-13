@@ -1,4 +1,4 @@
-name: Build Categraf for armv7 (QEMU + Archive Sources)
+name: Build Categraf for armv7 (Final)
 
 on:
   workflow_dispatch:
@@ -19,16 +19,15 @@ jobs:
           docker run --rm -v "${{ github.workspace }}":/src arm32v7/debian:buster-slim /bin/bash -c '
             set -e # 任何命令失败则立即退出
 
-            # --- 这是最关键的修正 ---
-            # 1. 修改 sources.list 文件，指向 Debian 的存档软件源
+            # 1. 修复软件源
             echo "deb http://archive.debian.org/debian buster main" > /etc/apt/sources.list
             echo "deb http://archive.debian.org/debian-security buster/updates main" >> /etc/apt/sources.list
             
-            # 2. 现在可以成功更新包列表并安装依赖了
+            # 2. 安装依赖
             apt-get update -o Acquire::Check-Valid-Until=false
             apt-get install -y git build-essential libpcap-dev wget
 
-            # 3. 安装Go编译器
+            # 3. 安装Go
             wget -q https://go.dev/dl/go1.21.10.linux-armv6l.tar.gz
             tar -C /usr/local -xzf go1.21.10.linux-armv6l.tar.gz
             export PATH=$PATH:/usr/local/go/bin
@@ -36,8 +35,9 @@ jobs:
             # 4. 进入源代码目录
             cd /src
 
-            # 5. 原生编译Categraf
-            CGO_ENABLED=1 go build -ldflags="-s -w" -o categraf .
+            # 5. 最终的、包含所有修复的编译命令
+            #    -buildvcs=false 禁用了版本戳记，解决了Git错误
+            CGO_ENABLED=1 go build -buildvcs=false -ldflags="-s -w" -o categraf .
           '
           
       - name: Check the build output
